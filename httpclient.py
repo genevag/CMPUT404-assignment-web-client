@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 # Copyright 2013 Abram Hindle
+#           2016 Geneva Giang
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,26 +28,47 @@ import urllib
 def help():
     print "httpclient.py [GET/POST] [URL]\n"
 
-class HTTPRequest(object):
+class HTTPResponse(object):
     def __init__(self, code=200, body=""):
         self.code = code
         self.body = body
 
 class HTTPClient(object):
-    #def get_host_port(self,url):
+    def get_host_port(self,url):
+        host, others = url.rsplit(':', 1)
+        port, endpoint = others.split("/", 1)
+        endpoint = "/" + endpoint
+
+        if host.find("http://") != -1:
+            host = host[7:]
+        elif host.find("https://") != -1:
+            host = host[8:]
+
+        return (host, int(port), endpoint)
 
     def connect(self, host, port):
         # use sockets!
-        return None
+        cs = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        print "-- Connect --"
+        print (host,port)
+        print "-------------"
+        cs.connect((host, port))
+        return cs
 
     def get_code(self, data):
-        return None
+        statusLine, others = data.split("\n", 1)
+        httpVersion, statusCode, description = statusLine.split(" ", 2)
+        print "\n\nCode: " + statusCode
+        return int(statusCode)
 
     def get_headers(self,data):
         return None
 
     def get_body(self, data):
-        return None
+        index = data.find('\r\n\r\n')
+        body = data[index+4:]
+        print "\n\nBody:\n" + body
+        return body
 
     # read everything from the socket
     def recvall(self, sock):
@@ -60,15 +82,39 @@ class HTTPClient(object):
                 done = not part
         return str(buffer)
 
+    def formulateGETRequest(self, host, port, endpoint):
+        request = "GET " + endpoint + " HTTP/1.1\n" + \
+                  "Host: " + host + ":" + str(port) + "\r\n\r\n"
+
+        return request
+
+    # make port default to 80 if not given?
+    def sendRequest(self, request, host, port):
+        cs = self.connect(host, port)
+        cs.sendall(request)
+
+        return cs
+
     def GET(self, url, args=None):
-        code = 500
-        body = ""
-        return HTTPRequest(code, body)
+        (host, port, endpoint) = self.get_host_port(url)
+        print "Host: %s\nPort: %d\nEndpoint: %s" % (host, port, endpoint)
+
+        request = self.formulateGETRequest(host, port, endpoint)
+        clientSocket = self.sendRequest(request, host, port)
+        response = self.recvall(clientSocket)
+        print "\n\nResponse: \n" + response
+
+        code = self.get_code(response)
+        body = self.get_body(response)
+
+        print "--- Code : %d ---" % int(code)
+        print "--- Body : \n%s ---" % body
+        return HTTPResponse(code, body)
 
     def POST(self, url, args=None):
         code = 500
         body = ""
-        return HTTPRequest(code, body)
+        return HTTPResponse(code, body)
 
     def command(self, url, command="GET", args=None):
         if (command == "POST"):
@@ -79,10 +125,11 @@ class HTTPClient(object):
 if __name__ == "__main__":
     client = HTTPClient()
     command = "GET"
+
     if (len(sys.argv) <= 1):
         help()
         sys.exit(1)
     elif (len(sys.argv) == 3):
-        print client.command( sys.argv[1], sys.argv[2] )
+        print client.command( sys.argv[2], sys.argv[1] )
     else:
         print client.command( command, sys.argv[1] )    
