@@ -24,6 +24,7 @@ import socket
 import re
 # you may use urllib to encode data appropriately
 import urllib
+import json
 
 def help():
     print "httpclient.py [GET/POST] [URL]\n"
@@ -34,15 +35,23 @@ class HTTPResponse(object):
         self.body = body
 
 class HTTPClient(object):
+    # try using regular expressions to parse the url
     def get_host_port(self,url):
-        host, others = url.rsplit(':', 1)
-        port, endpoint = others.split("/", 1)
-        endpoint = "/" + endpoint
+        if url[:7] == "http://":
+            url = url[7:]
+        elif url[:8] == "https://":
+            url = url[8:]
 
-        if host.find("http://") != -1:
-            host = host[7:]
-        elif host.find("https://") != -1:
-            host = host[8:]
+        try:
+            host, others = url.split(':', 1)
+        except:
+            host, endpoint = url.split("/", 1)
+            # default port if not given
+            port = 80
+        else:
+            port, endpoint = others.split("/", 1)
+        
+        endpoint = "/" + endpoint
 
         return (host, int(port), endpoint)
 
@@ -70,22 +79,28 @@ class HTTPClient(object):
         print "\n\nBody:\n" + body
         return body
 
+
     # read everything from the socket
     def recvall(self, sock):
-        buffer = bytearray()
+        response = bytearray()
         done = False
         while not done:
+            # sock.setblocking(0)
+
             part = sock.recv(1024)
+
             if (part):
-                buffer.extend(part)
+                response.extend(part)
             else:
                 done = not part
-        return str(buffer)
+
+        return str(response)
 
     def formulateGETRequest(self, host, port, endpoint):
         request = "GET " + endpoint + " HTTP/1.1\n" + \
                   "Host: " + host + ":" + str(port) + "\r\n\r\n"
 
+        print "Request:\n" + request
         return request
 
     # make port default to 80 if not given?
@@ -111,9 +126,39 @@ class HTTPClient(object):
         print "--- Body : \n%s ---" % body
         return HTTPResponse(code, body)
 
+
+    def formulatePOSTRequest(self, host, port, endpoint, args):
+        request = "POST " + endpoint + " HTTP/1.1\n" + \
+                  "Host: " + host + ":" + str(port) + "\n" + \
+                  "Content-Type: " + "application/x-www-form-urlencoded\n"
+
+        if args != None:
+            encoded_body = urllib.urlencode(args)
+        else:
+            encoded_body = ""
+        request += "Content-Length: " + str(len(encoded_body)) + "\r\n\r\n"
+        request += encoded_body
+
+        print '\n\n' + request
+        return request
+
     def POST(self, url, args=None):
-        code = 500
-        body = ""
+        print args
+        print len(json.dumps(args))
+
+        (host, port, endpoint) = self.get_host_port(url)
+        print "Host: %s\nPort: %d\nEndpoint: %s" % (host, port, endpoint)
+        request = self.formulatePOSTRequest(host, port, endpoint, args)
+        clientSocket = self.sendRequest(request, host, port)
+        response = self.recvall(clientSocket)
+        print "\n\nResponse: \n\n\n" + response
+
+        code = self.get_code(response)
+        body = self.get_body(response)
+
+        print "--- Code : %d ---" % int(code)
+        print "--- Body : \n%s ---" % body
+
         return HTTPResponse(code, body)
 
     def command(self, url, command="GET", args=None):
