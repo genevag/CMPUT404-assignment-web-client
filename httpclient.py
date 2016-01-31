@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
-# Copyright 2013 Abram Hindle
+# Copyright 2016 Abram Hindle, https://github.com/tywtyw2002, and https://github.com/treedust
 #           2016 Geneva Giang
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -193,4 +193,4 @@ if __name__ == "__main__":
     elif (len(sys.argv) == 3):
         print client.command( sys.argv[2], sys.argv[1] )
     else:
-        print client.command( command, sys.argv[1] )    
+        print client.command( sys.argv[1] )   
