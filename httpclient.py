@@ -25,8 +25,10 @@ import re
 # you may use urllib to encode data appropriately
 import urllib
 import json
-import select
 import sys
+# to decode query part of url only
+import urlparse
+
 
 def help():
     print "httpclient.py [GET/POST] [URL]\n"
@@ -42,18 +44,23 @@ class HTTPClient(object):
         rules = "(?P<Protocol>[a-zA-Z]+\://)?(?P<Host>(?:(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d?|0)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d?|0))|[a-zA-Z0-9\-\.]*\.+[a-zA-Z]*)(?P<Port>:(?:6553[0-5]|655[0-2]\d|65[0-4]\d{2}|6[0-4]\d{3}|[1-5]\d{4}|[1-9]\d{0,3}))?(?P<Location>/(?:[a-zA-Z0-9\-\._\?\,\'/\\\+&amp;%\$#\=~]*)[^\.\,\)\(\s]?)?"
         a = re.match(rules, url)
 
-        httpProtocol = a.group("Protocol")
-        host = a.group("Host")
-        port = a.group("Port")
-        endpoint = a.group("Location")
+        if a != None:
+            httpProtocol = a.group("Protocol")
+            host = a.group("Host")
+            port = a.group("Port")
+            endpoint = a.group("Location")
 
-        if not port:
-            port = 80
+            if not port:
+                port = 80
+            else:
+                port = int(port[1:])
+
+            if not endpoint:
+                endpoint = '/'
         else:
-            port = int(port[1:])
-
-        if not endpoint:
-            endpoint = '/'
+            host = None
+            port = None
+            endpoint = None
 
         return (host, port, endpoint)
 
@@ -64,13 +71,10 @@ class HTTPClient(object):
             cs.connect((host, port))
             return cs
         except Exception, e:
-            if e.strerror == "nodename nor servname provided, or not known":  # Error 8
-                errorMsg = "Could not connect to %s:%s" % (host,port)
-                print errorMsg
-                raise e
-                # sys.exit(errorMsg)
-            else:
-                raise
+            errorMsg = "Could not connect to %s:%s" % (host,port)
+            print errorMsg
+            raise e
+            # sys.exit(errorMsg)
 
 
     def get_code(self, data):
@@ -109,16 +113,10 @@ class HTTPClient(object):
             if endpoint[-1] != '?':
                 endpoint = endpoint + '?' + encoded_url_params
 
-        # print encoded_url_params
-        # print endpoint
-
         request = "GET " + endpoint + " HTTP/1.1\n" + \
                   "Host: " + host + ":" + str(port) + '\n' + \
                   "Connection: close" + "\r\n\r\n"
 
-
-        print '--------- REQUEST -------'
-        print request
         return request
 
     # make port default to 80 if not given?
@@ -137,8 +135,6 @@ class HTTPClient(object):
         self.sendRequest(request, sock)
 
         response = self.recvall(sock)
-        print '--------- RESPONSE -------'
-        print response
 
         headers = self.get_headers(response)
         code = self.get_code(headers)
@@ -148,10 +144,41 @@ class HTTPClient(object):
 
         return HTTPResponse(code, body)
  
+    def extract_url_arguments(self, url):
+        # Rules modified from : https://regex101.com/r/aO0wR7/2 2016-01-29
+        rules = "(?P<Protocol>[a-zA-Z]+\://)?(?P<Host>(?:(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d?|0)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d?|0))|[a-zA-Z0-9\-\.]*\.+[a-zA-Z]*)(?P<Port>:(?:6553[0-5]|655[0-2]\d|65[0-4]\d{2}|6[0-4]\d{3}|[1-5]\d{4}|[1-9]\d{0,3}))?(?P<Path>/(?:[a-zA-Z0-9\-\._\,\'/\\\+&amp;%\$#\=~]*)[^\?\.\,\)\(\s]?)?(?P<Query>\?.*)?"
+        a = re.match(rules, url)
 
+        if a != None:
+            queryString = a.group("Query")
+            path = a.group("Path")
+        else:
+            queryString = None
+            path = None
+        
+        return queryString, path
 
-    def formulatePOSTRequest(self, host, port, endpoint, args):
-        request = "POST " + endpoint + " HTTP/1.1\n" + \
+    def formulateArguments(self, queryString, args):
+        queryString = queryString[1:]
+        urlArgs = urlparse.parse_qsl(queryString)
+
+        if args == None:
+            args = {}
+
+        for item in urlArgs:
+            args[item[0]] = item[1]
+
+        return args
+
+    def formulatePOSTRequest(self, url, host, port, endpoint, args):
+        queryString, path = self.extract_url_arguments(url)
+
+        if queryString != None:
+            args = self.formulateArguments(queryString, args)
+        else:
+            path = endpoint
+
+        request = "POST " + path + " HTTP/1.1\n" + \
                   "Host: " + host + ":" + str(port) + "\n" + \
                   "Content-Type: " + "application/x-www-form-urlencoded\n"
 
@@ -163,26 +190,22 @@ class HTTPClient(object):
         request += "Content-Length: " + str(len(encoded_body)) + "\r\n\r\n"
         request += encoded_body
 
-        print '--------- REQUEST -------'
-        print request
-        
         return request
 
     def POST(self, url, args=None):
         (host, port, endpoint) = self.get_host_port(url)
-
         sock = self.connect(host, port)
         
-        request = self.formulatePOSTRequest(host, port, endpoint, args)
+        request = self.formulatePOSTRequest(url, host, port, endpoint, args)
         
         self.sendRequest(request, sock)
         
         response = self.recvall(sock)
-        print '--------- RESPONSE -------'
-        print response
 
         code = self.get_code(response)
         body = self.get_body(response)
+
+        print body
 
         return HTTPResponse(code, body)
 
@@ -204,3 +227,5 @@ if __name__ == "__main__":
         print client.command( sys.argv[2], sys.argv[1] )
     else:
         print client.command( sys.argv[1] )   
+
+# POST can have query paramters & body paramters !!! mdify your code
